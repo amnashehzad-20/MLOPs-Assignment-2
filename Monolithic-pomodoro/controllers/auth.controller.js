@@ -6,7 +6,6 @@ const nodemailer = require('nodemailer');
 
 // Configure email transport for password reset
 const transporter = nodemailer.createTransport({
-  // Configure with your email service
   service: 'gmail',
   auth: {
     user: process.env.EMAIL_USER,
@@ -18,6 +17,15 @@ const transporter = nodemailer.createTransport({
 exports.signup = async (req, res) => {
   try {
     const { username, email, password } = req.body;
+
+    // Validate input
+    if (!username || !email || !password) {
+      return res.status(400).json({ message: 'All fields are required' });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({ message: 'Password must be at least 6 characters' });
+    }
 
     // Check if user already exists
     const existingUser = await User.findOne({ email });
@@ -42,14 +50,15 @@ exports.signup = async (req, res) => {
     const token = jwt.sign(
       { id: newUser._id },
       process.env.JWT_SECRET,
-      { expiresIn: '1d' }
+      { expiresIn: '7d' }
     );
 
     res.status(201).json({
       user: {
         id: newUser._id,
         username: newUser.username,
-        email: newUser.email
+        email: newUser.email,
+        pomodoroSettings: newUser.pomodoroSettings
       },
       token
     });
@@ -63,6 +72,11 @@ exports.signup = async (req, res) => {
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
+
+    // Validate input
+    if (!email || !password) {
+      return res.status(400).json({ message: 'Email and password are required' });
+    }
 
     // Find user by email
     const user = await User.findOne({ email });
@@ -80,14 +94,15 @@ exports.login = async (req, res) => {
     const token = jwt.sign(
       { id: user._id },
       process.env.JWT_SECRET,
-      { expiresIn: '1d' }
+      { expiresIn: '7d' }
     );
 
     res.json({
       user: {
         id: user._id,
         username: user.username,
-        email: user.email
+        email: user.email,
+        pomodoroSettings: user.pomodoroSettings
       },
       token
     });
@@ -101,6 +116,10 @@ exports.login = async (req, res) => {
 exports.forgotPassword = async (req, res) => {
   try {
     const { email } = req.body;
+    
+    if (!email) {
+      return res.status(400).json({ message: 'Email is required' });
+    }
     
     // Find user by email
     const user = await User.findOne({ email });
@@ -124,11 +143,16 @@ exports.forgotPassword = async (req, res) => {
     const mailOptions = {
       to: user.email,
       from: process.env.EMAIL_USER,
-      subject: 'Password Reset',
-      text: `You are receiving this because you (or someone else) requested a password reset.
-      Please click on the following link, or paste it into your browser to complete the process:
-      ${resetUrl}
-      If you did not request this, please ignore this email and your password will remain unchanged.`
+      subject: 'Pomodoro App - Password Reset',
+      html: `
+        <h2>Password Reset Request</h2>
+        <p>You are receiving this because you (or someone else) requested a password reset for your Pomodoro App account.</p>
+        <p>Please click on the following link, or paste it into your browser to complete the process:</p>
+        <a href="${resetUrl}" style="background-color: #4F46E5; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Reset Password</a>
+        <p>If the button doesn't work, copy and paste this link: ${resetUrl}</p>
+        <p>If you did not request this, please ignore this email and your password will remain unchanged.</p>
+        <p>This link will expire in 1 hour.</p>
+      `
     };
 
     await transporter.sendMail(mailOptions);
@@ -144,6 +168,14 @@ exports.forgotPassword = async (req, res) => {
 exports.resetPassword = async (req, res) => {
   try {
     const { token, newPassword } = req.body;
+    
+    if (!token || !newPassword) {
+      return res.status(400).json({ message: 'Token and new password are required' });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({ message: 'Password must be at least 6 characters' });
+    }
     
     // Find user by reset token and check expiration
     const user = await User.findOne({
@@ -187,7 +219,37 @@ exports.getMe = async (req, res) => {
   }
 };
 
-// Validate token (for auth checks from other services)
+// Update user profile
+exports.updateProfile = async (req, res) => {
+  try {
+    const { username, pomodoroSettings } = req.body;
+    
+    const user = await User.findById(req.userId);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    
+    // Update fields if provided
+    if (username) user.username = username;
+    if (pomodoroSettings) {
+      user.pomodoroSettings = { ...user.pomodoroSettings, ...pomodoroSettings };
+    }
+    
+    await user.save();
+    
+    res.json({
+      id: user._id,
+      username: user.username,
+      email: user.email,
+      pomodoroSettings: user.pomodoroSettings
+    });
+  } catch (error) {
+    console.error('Update profile error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// Validate token (for client-side auth checks)
 exports.validateToken = async (req, res) => {
   try {
     const { token } = req.body;
@@ -209,7 +271,8 @@ exports.validateToken = async (req, res) => {
       valid: true,
       userId: user._id,
       username: user.username,
-      email: user.email
+      email: user.email,
+      pomodoroSettings: user.pomodoroSettings
     });
   } catch (error) {
     console.error('Token validation error:', error);

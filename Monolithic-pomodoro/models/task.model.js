@@ -25,8 +25,9 @@ const taskSchema = new mongoose.Schema({
     type: String,
     trim: true
   },
-  userId: {  // Changed from reference to string ID
-    type: String,
+  userId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
     required: true
   },
   estimatedPomodoros: {
